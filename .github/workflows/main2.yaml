@@ -1,0 +1,216 @@
+name: Test terraform
+
+on:
+  push:
+    # branches:
+    #   - main
+
+  workflow_dispatch:
+    inputs:
+      git-ref:
+        description: Git Ref (Optional)
+        default: Develop
+        required: false
+
+jobs:
+  terraform-dev:
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: write
+
+    steps:
+      - name: Clone Repository (Latest)
+        uses: actions/checkout@v2
+        if: github.event.inputs.git-ref == ''
+      - name: Clone Repository (Custom Ref)
+        uses: actions/checkout@v2
+        if: github.event.inputs.git-ref != ''
+        with:
+          ref: ${{ github.event.inputs.git-ref }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@master
+        # if: github.event.inputs.account == 'slb-dev'
+        with:
+          role-to-assume: arn:aws:iam::262267462662:role/slb-dev-github-actions
+          aws-region: us-east-1
+          # role-session-name: GithubActionsSession
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v1
+        with:
+          terraform_version: 1.1.2
+
+      - name: Terraform Format
+        id: fmt
+        run: terraform fmt -check
+
+      - name: Terraform Init
+        id: init
+        run: |
+          cd infrastructure/env/dev-slb-alpha/dev
+          terraform init
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate -no-color
+
+      - name: Terraform Plan
+        id: plan
+        run: |
+          cd infrastructure/env/dev-slb-alpha/dev
+          # terraform force-unlock -force d5f2d86a-e0f6-222f-db3f-2c1d792ed528
+          # terraform force-unlock -force QOCDA86JVO02CCFV3SB010RGP3VV4KQNSO5AEMVJF66Q9ASUAAJG
+          terraform plan -no-color -input=false
+      - uses: actions/github-script@0.9.0
+        if: github.event_name == 'pull_request'
+        env:
+          PLAN: "terraform\n${{ steps.plan.outputs.stdout }}"
+        with:
+          github-token: ${{ secrets.INPUT_GITHUB_TOKEN }}
+          script: |
+            const output = `#### Terraform Format and Style 🖌\`${{ steps.fmt.outcome }}\`
+            #### Terraform Initialization ⚙️\`${{ steps.init.outcome }}\`
+            #### Terraform Validation 🤖${{ steps.validate.outputs.stdout }}
+            #### Terraform Plan 📖\`${{ steps.plan.outcome }}\`
+            <details><summary>Show Plan</summary>
+            \`\`\`${process.env.PLAN}\`\`\`
+            </details>
+            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`, Working Directory: \`${{ env.tf_actions_working_dir }}\`, Workflow: \`${{ github.workflow }}\`*`;
+            github.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })
+      - name: Run Checkov action
+        run: |
+          pip3 install checkov
+          checkov --directory /infrastructure
+        id: checkov
+
+      - name: Superlinter
+        uses: actions/checkout@v2
+      - name: Scan Code Base
+        # uses: github/super-linter@v4
+        # env:
+        #   VALIDATE_ALL_CODEBASE: false
+        #   # DEFAULT_BRANCH: master
+        #   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        #   VALIDATE_TERRAFORM_TERRASCAN: false
+        uses: terraform-linters/setup-tflint@v1
+        with:
+          tflint_version: v0.29.0
+
+      - name: terrascan
+        uses: actions/checkout@v2
+      - name: Run Terrascan
+        id: terrascan
+        uses: accurics/terrascan-action@v1
+        with:
+          iac_type: "terraform"
+          iac_version: "v15"
+          policy_type: "aws"
+          only_warn: true
+
+  terraform-prod:
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: write
+
+    steps:
+      - name: Clone Repository (Latest)
+        uses: actions/checkout@v2
+        if: github.event.inputs.git-ref == ''
+      - name: Clone Repository (Custom Ref)
+        uses: actions/checkout@v2
+        if: github.event.inputs.git-ref != ''
+        with:
+          ref: ${{ github.event.inputs.git-ref }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@master
+        # if: github.event.inputs.account == 'slb-dev'
+        with:
+          role-to-assume: arn:aws:iam::470752855952:role/slb-prod-github-actions
+          aws-region: us-east-1
+          # role-session-name: GithubActionsSession
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v1
+        with:
+          terraform_version: 1.1.2
+
+      - name: Terraform Format
+        id: fmt
+        run: terraform fmt -check
+
+      - name: Terraform Init
+        id: init
+        run: |
+          cd infrastructure/env/prod-slb-prod/prod
+          terraform init
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate -no-color
+
+      - name: Terraform Plan
+        id: plan
+        run: |
+          cd infrastructure/env/prod-slb-prod/prod
+          # terraform force-unlock -force d5f2d86a-e0f6-222f-db3f-2c1d792ed528
+          # terraform force-unlock -force QOCDA86JVO02CCFV3SB010RGP3VV4KQNSO5AEMVJF66Q9ASUAAJG
+          terraform plan -no-color -input=false
+      - uses: actions/github-script@0.9.0
+        if: github.event_name == 'pull_request'
+        env:
+          PLAN: "terraform\n${{ steps.plan.outputs.stdout }}"
+        with:
+          github-token: ${{ secrets.INPUT_GITHUB_TOKEN }}
+          script: |
+            const output = `#### Terraform Format and Style 🖌\`${{ steps.fmt.outcome }}\`
+            #### Terraform Initialization ⚙️\`${{ steps.init.outcome }}\`
+            #### Terraform Validation 🤖${{ steps.validate.outputs.stdout }}
+            #### Terraform Plan 📖\`${{ steps.plan.outcome }}\`
+            <details><summary>Show Plan</summary>
+            \`\`\`${process.env.PLAN}\`\`\`
+            </details>
+            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`, Working Directory: \`${{ env.tf_actions_working_dir }}\`, Workflow: \`${{ github.workflow }}\`*`;
+            github.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })
+      - name: Run Checkov action
+        run: |
+          pip3 install checkov
+          checkov --directory /infrastructure
+        id: checkov
+
+      - name: Superlinter
+        uses: actions/checkout@v2
+      - name: Scan Code Base
+        # uses: github/super-linter@v4
+        # env:
+        #   VALIDATE_ALL_CODEBASE: false
+        #   # DEFAULT_BRANCH: master
+        #   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        #   VALIDATE_TERRAFORM_TERRASCAN: false
+        uses: terraform-linters/setup-tflint@v1
+        with:
+          tflint_version: v0.29.0
+
+      - name: terrascan
+        uses: actions/checkout@v2
+      - name: Run Terrascan
+        id: terrascan
+        uses: accurics/terrascan-action@v1
+        with:
+          iac_type: "terraform"
+          iac_version: "v15"
+          policy_type: "aws"
+          only_warn: true
